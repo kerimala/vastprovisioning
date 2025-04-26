@@ -1,0 +1,2 @@
+# vastprovisioning
+VastAI Provisioning Templates
