@@ -17,6 +17,8 @@ APT_PACKAGES=(
 PIP_PACKAGES=(
     #"package-1"
     #"package-2"
+    voluptuous
+    xformers==0.0.20rc2
 )
 
 NODES=(
@@ -185,7 +187,7 @@ function provisioning_launch_services() {
     echo ">>> Launching FluxGym on port 7860"
     cd "$FLUXGYM_DIR"
     # venv is already active
-    nohup python app.py --host 0.0.0.0 --port 7860 > fluxgym.log 2>&1 &
+    python app.py --host 0.0.0.0 --port 7860 > fluxgym.log 2>&1 &
 
     # return to workspace root
     cd "$WORKSPACE"
