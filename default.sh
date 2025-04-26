@@ -1,7 +1,12 @@
 #!/bin/bash
 
+# Activate the ComfyUI venv
 source /venv/main/bin/activate
-COMFYUI_DIR=${WORKSPACE}/ComfyUI
+
+# Set up workspace paths
+WORKSPACE="/workspace"
+COMFYUI_DIR="${WORKSPACE}/ComfyUI"
+FLUXGYM_DIR="${WORKSPACE}/FluxGym"
 
 # Packages are installed after nodes so we can fix them...
 APT_PACKAGES=(
@@ -49,6 +54,8 @@ function provisioning_start() {
     provisioning_get_apt_packages
     provisioning_get_nodes
     provisioning_get_pip_packages
+
+    # Pull in all the ComfyUI models
     provisioning_get_files \
         "${COMFYUI_DIR}/models/checkpoints" \
         "${CHECKPOINT_MODELS[@]}"
@@ -67,106 +74,124 @@ function provisioning_start() {
     provisioning_get_files \
         "${COMFYUI_DIR}/models/esrgan" \
         "${ESRGAN_MODELS[@]}"
-    provisioning_install_fluxgym   # <— install FluxGym
+
+    # Now install FluxGym into the same venv
+    provisioning_install_fluxgym
+
     provisioning_print_end
-    provisioning_launch_services  # <— start both ComfyUI & FluxGym
+
+    # Finally, launch both services
+    provisioning_launch_services
 }
 
 function provisioning_get_apt_packages() {
-    if [[ -n $APT_PACKAGES ]]; then
-        sudo $APT_INSTALL ${APT_PACKAGES[@]}
+    if [[ ${#APT_PACKAGES[@]} -gt 0 ]]; then
+        sudo apt update
+        sudo apt install -y "${APT_PACKAGES[@]}"
     fi
 }
 
 function provisioning_get_pip_packages() {
-    if [[ -n $PIP_PACKAGES ]]; then
-        pip install --no-cache-dir ${PIP_PACKAGES[@]}
+    if [[ ${#PIP_PACKAGES[@]} -gt 0 ]]; then
+        pip install --no-cache-dir "${PIP_PACKAGES[@]}"
     fi
 }
 
 function provisioning_get_nodes() {
     for repo in "${NODES[@]}"; do
         dir="${repo##*/}"
-        path="${COMFYUI_DIR}/custom_nodes/${dir}"
-        requirements="${path}/requirements.txt"
-        if [[ -d $path ]]; then
-            if [[ ${AUTO_UPDATE,,} != "false" ]]; then
-                printf "Updating node: %s...\n" "${repo}"
-                (cd "$path" && git pull)
-                [[ -e $requirements ]] && pip install --no-cache-dir -r "$requirements"
-            fi
+        install_path="${COMFYUI_DIR}/custom_nodes/${dir}"
+        requirements="${install_path}/requirements.txt"
+        if [[ -d $install_path ]]; then
+            printf "Updating node: %s...\n" "${repo}"
+            (cd "$install_path" && git pull)
         else
-            printf "Downloading node: %s...\n" "${repo}"
-            git clone "${repo}" "${path}" --recursive
-            [[ -e $requirements ]] && pip install --no-cache-dir -r "${requirements}"
+            printf "Cloning node: %s...\n" "${repo}"
+            git clone "$repo" "$install_path" --recursive
         fi
+        [[ -f $requirements ]] && pip install --no-cache-dir -r "$requirements"
     done
 }
 
 function provisioning_get_files() {
-    if [[ -z $2 ]]; then return 1; fi
-    dir="$1"
-    mkdir -p "$dir"
-    shift
-    arr=("$@")
-    printf "Downloading %s model(s) to %s...\n" "${#arr[@]}" "$dir"
-    for url in "${arr[@]}"; do
-        printf "Downloading: %s\n" "${url}"
-        provisioning_download "${url}" "${dir}"
-        printf "\n"
+    if [[ -z "$2" ]]; then return; fi
+    local dest_dir="$1"; shift
+    mkdir -p "$dest_dir"
+    printf "Downloading %d model(s) to %s...\n" "$#" "$dest_dir"
+    for url in "$@"; do
+        printf "  -> %s\n" "$url"
+        provisioning_download "$url" "$dest_dir"
     done
 }
 
 function provisioning_print_header() {
-    printf "\n##############################################\n"
-    printf "#     Provisioning container (ComfyUI+Gym)    #\n"
-    printf "##############################################\n\n"
+    cat <<'EOF'
+
+##############################################
+#                                            #
+#       Provisioning container (UI + Gym)    #
+#                                            #
+#      This will take a minute or two        #
+#                                            #
+# Your container will launch both services   #
+#                                            #
+##############################################
+
+EOF
 }
 
 function provisioning_print_end() {
-    printf "\nProvisioning complete: starting ComfyUI & FluxGym...\n\n"
+    echo
+    echo "Provisioning complete — starting ComfyUI & FluxGym..."
+    echo
 }
 
-# … (other helper functions for tokens, download, etc.) …
+# Download helper (respects HF_TOKEN / CIVITAI_TOKEN if set)
+function provisioning_download() {
+    url="$1"; dest="$2"
+    auth_header=()
+    if [[ -n "$HF_TOKEN" && "$url" =~ huggingface\.co ]]; then
+        auth_header=(-H "Authorization: Bearer $HF_TOKEN")
+    elif [[ -n "$CIVITAI_TOKEN" && "$url" =~ civitai\.com ]]; then
+        auth_header=(-H "Authorization: Bearer $CIVITAI_TOKEN")
+    fi
+    wget -q --show-progress --content-disposition "${auth_header[@]}" -P "$dest" "$url"
+}
 
-# --- FLUXGYM INSTALLATION & LAUNCH ---
-
+#
+# FLUXGYM installation into the same /venv/main venv
+#
 function provisioning_install_fluxgym() {
-    echo "=== Installing FluxGym ==="
-    FLUXGYM_DIR="${COMFYUI_DIR}/fluxgym"
+    echo "=== Installing FluxGym into ComfyUI venv ==="
+    # Clone the FluxGym repo
+    git clone https://github.com/cocktailpeanut/fluxgym "$FLUXGYM_DIR"
+    # fluxgym depends on Kohya sd-scripts
+    git clone -b sd3 https://github.com/kohya-ss/sd-scripts "$FLUXGYM_DIR/sd-scripts"
 
-    # Clone FluxGym & sd-scripts
-    git clone https://github.com/cocktailpeanut/fluxgym "${FLUXGYM_DIR}"
-    git clone -b sd3 https://github.com/kohya-ss/sd-scripts "${FLUXGYM_DIR}/sd-scripts"
+    # We're already in /venv/main, so just pip install into that venv:
+    pip install --no-cache-dir -r "$FLUXGYM_DIR/sd-scripts/requirements.txt"
+    pip install --no-cache-dir -r "$FLUXGYM_DIR/requirements.txt"
 
-    # Create venv and install
-    cd "${FLUXGYM_DIR}"
-    python3 -m venv env
-    source env/bin/activate
-
-    pip install --no-cache-dir -r sd-scripts/requirements.txt
-    pip install --no-cache-dir -r requirements.txt
-    # nightly PyTorch for CUDA 12.1
-    pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-
-    deactivate
-    echo "=== FluxGym installed at ${FLUXGYM_DIR} ==="
+    echo "=== FluxGym installed at $FLUXGYM_DIR ==="
 }
 
+#
+# Launch both UIs without blocking the provisioning script
+#
 function provisioning_launch_services() {
-    echo "=== Launching ComfyUI on port 18188 ==="
-    # Launch ComfyUI without blocking
+    echo ">>> Launching ComfyUI on port 18188"
     comfyui-command --disable-auto-launch --port 18188 --enable-cors-header &
 
-    echo "=== Launching FluxGym on port 7860 ==="
-    FLUXGYM_DIR="${COMFYUI_DIR}/fluxgym"
-    cd "${FLUXGYM_DIR}"
-    source env/bin/activate
+    echo ">>> Launching FluxGym on port 7860"
+    cd "$FLUXGYM_DIR"
+    # venv is already active
     nohup python app.py --host 0.0.0.0 --port 7860 > fluxgym.log 2>&1 &
-    deactivate
+
+    # return to workspace root
+    cd "$WORKSPACE"
 }
 
-# entry point
+# start provisioning if not disabled
 if [[ ! -f /.noprovisioning ]]; then
     provisioning_start
 fi
