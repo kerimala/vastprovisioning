@@ -17,8 +17,8 @@ APT_PACKAGES=(
 PIP_PACKAGES=(
     #"package-1"
     #"package-2"
-    voluptuous
-    xformers==0.0.20rc2
+    #"voluptuous"
+    #"xformers==0.0.20rc2"
 )
 
 NODES=(
