@@ -131,8 +131,13 @@ function setup_fluxgym_venv() {
     pip install --no-cache-dir \
         voluptuous \
         xformers \
-        -r "$FLUXGYM_DIR/sd-scripts/requirements.txt" \
-        || die "pip install sd-scripts fehlgeschlagen"
+        || die "pip install voluptuous & xformers fehlgeschlagen"
+
+    info "Installiere sd-scripts als editable-Paket"
+    cd "$FLUXGYM_DIR/sd-scripts"
+    pip install --no-cache-dir -e . \
+        || die "pip install sd-scripts (editable) fehlgeschlagen"
+    cd -
 
     info "Installiere FluxGym Requirements"
     pip install --no-cache-dir -r "$FLUXGYM_DIR/requirements.txt" \
