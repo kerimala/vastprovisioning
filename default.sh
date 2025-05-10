@@ -109,7 +109,7 @@ function install_models() {
     for url in "${CHECKPOINT_MODELS[@]}"; do
         provisioning_download "$url" "$dest"
     done
-    # (weitere Modell-Kategorien analog)
+    # (weitere Modell-Kategorien analog ergänzen)
 }
 
 # ----------------------------------------
@@ -120,17 +120,24 @@ function setup_fluxgym_venv() {
     python3 -m venv "$FLUXGYM_VENV" || die "venv Creation fehlgeschlagen"
 
     source "$FLUXGYM_VENV/bin/activate"
+
+    info "Cloning FluxGym und sd-scripts..."
     git clone https://github.com/cocktailpeanut/fluxgym "$FLUXGYM_DIR" \
         || die "FluxGym-Repo clone fehlgeschlagen"
     git clone -b sd3 https://github.com/kohya-ss/sd-scripts "$FLUXGYM_DIR/sd-scripts" \
         || die "sd-scripts clone fehlgeschlagen"
 
-    info "Installiere sd-scripts Requirements"
-    pip install --no-cache-dir -r "$FLUXGYM_DIR/sd-scripts/requirements.txt" \
+    info "Installiere sd-scripts Requirements (inkl. voluptuous & xformers)"
+    pip install --no-cache-dir \
+        voluptuous \
+        xformers \
+        -r "$FLUXGYM_DIR/sd-scripts/requirements.txt" \
         || die "pip install sd-scripts fehlgeschlagen"
+
     info "Installiere FluxGym Requirements"
     pip install --no-cache-dir -r "$FLUXGYM_DIR/requirements.txt" \
         || die "pip install FluxGym fehlgeschlagen"
+
     deactivate
 }
 
